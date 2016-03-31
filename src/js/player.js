@@ -1901,6 +1901,11 @@ class Player extends Component {
         // wait until the tech is ready to set the source
         this.ready(function(){
 
+          /* eslint-disable */
+          console.log('In ready');
+          console.log(source);
+          console.log(currentTech);
+          /* eslint-enable */
           // The setSource tech method was added with source handlers
           // so older techs won't support it
           // We need to check the direct prototype for the case where subclasses
