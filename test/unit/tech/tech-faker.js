@@ -36,6 +36,7 @@ class TechFaker extends Tech {
   seeking() {
     return false;
   }
+  currentSrc() {}
   src() {
     return 'movie.mp4';
   }
