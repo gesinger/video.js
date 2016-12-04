@@ -15,6 +15,11 @@ import window from 'global/window';
 import assign from 'object.assign';
 
 const navigator = window.navigator;
+const CACHED_VALUES_REFRESH_INTERVAL = 100;
+
+const _readWrite = 'rtmpConnection,rtmpStream,preload,defaultPlaybackRate,playbackRate,autoplay,loop,mediaGroup,controller,controls,volume,muted,defaultMuted'.split(',');
+const _readOnly = 'networkState,initialTime,startOffsetTime'.split(',');
+const _cacheReadOnly = 'readyState,paused,ended,videoWidth,videoHeight'.split(',');
 
 /**
  * Flash Media Controller - Wrapper for fallback SWF API
@@ -58,6 +63,25 @@ class Flash extends Tech {
 
     this.on('seeked', function() {
       this.lastSeekTarget_ = undefined;
+    });
+
+    // Calling into the SWF can be expensive, especially if Flash is busy rendering
+    // video frames.
+    // Automatically cache commonly used properties for a short period of time so that
+    // multiple calls within a short time period don't all pay a big performance penalty
+    // for properties that change relatively slowly over time.
+    // In addition, refresh all properties at near the same time so that they reflect a
+    // cohesive state.
+    this.cachedValues_ = {};
+
+    const valsToCache = _cacheReadOnly.concat(['currentTime', 'duration', 'buffered']);
+
+    this.one('ready', () => {
+      this.cacheInterval_ = window.setInterval(() => {
+        valsToCache.forEach((val) => {
+          this.cachedValues_[val] = this.el_.vjs_getProperty(val);
+        });
+      }, CACHED_VALUES_REFRESH_INTERVAL);
     });
   }
 
@@ -219,7 +243,8 @@ class Flash extends Tech {
     if (this.seeking()) {
       return this.lastSeekTarget_ || 0;
     }
-    return this.el_.vjs_getProperty('currentTime');
+
+    return this.cachedValues_.currentTime;
   }
 
   /**
@@ -243,7 +268,8 @@ class Flash extends Tech {
     if (this.readyState() === 0) {
       return NaN;
     }
-    const duration = this.el_.vjs_getProperty('duration');
+
+    const duration = this.cachedValues_.duration;
 
     return duration >= 0 ? duration : Infinity;
   }
@@ -295,7 +321,8 @@ class Flash extends Tech {
    * @method buffered
    */
   buffered() {
-    const ranges = this.el_.vjs_getProperty('buffered');
+    // const ranges = this.el_.vjs_getProperty('buffered');
+    const ranges = this.cachedValues_.buffered;
 
     if (ranges.length === 0) {
       return createTimeRange();
@@ -328,12 +355,15 @@ class Flash extends Tech {
     return false;
   }
 
+  dispose() {
+    super.dispose();
+
+    window.clearInterval(this.cacheInterval_);
+  }
 }
 
 // Create setters and getters for attributes
 const _api = Flash.prototype;
-const _readWrite = 'rtmpConnection,rtmpStream,preload,defaultPlaybackRate,playbackRate,autoplay,loop,mediaGroup,controller,controls,volume,muted,defaultMuted'.split(',');
-const _readOnly = 'networkState,readyState,initialTime,startOffsetTime,paused,ended,videoWidth,videoHeight'.split(',');
 
 function _createSetter(attr) {
   const attrUpper = attr.charAt(0).toUpperCase() + attr.slice(1);
@@ -349,6 +379,12 @@ function _createGetter(attr) {
   };
 }
 
+function _createCachedGetter(attr) {
+  _api[attr] = function() {
+    return this.cachedValues_[attr];
+  };
+}
+
 // Create getter and setters for all read/write attributes
 for (let i = 0; i < _readWrite.length; i++) {
   _createGetter(_readWrite[i]);
@@ -358,6 +394,11 @@ for (let i = 0; i < _readWrite.length; i++) {
 // Create getters for read-only attributes
 for (let i = 0; i < _readOnly.length; i++) {
   _createGetter(_readOnly[i]);
+}
+
+// Create cached getters
+for (let i = 0; i < _cacheReadOnly.length; i++) {
+  _createCachedGetter(_cacheReadOnly[i]);
 }
 
 /* Flash Support Testing -------------------------------------------------------- */
